@@ -425,6 +425,21 @@ ifdef DARWIN
 		libs/$(notdir $(SSL_LIB)) $(OUTPUT_DIR)/common/ssl.so
 endif
 
+
+$(LUA_HTTP): $(THIRDPARTY_DIR)/lua-http/CMakeLists.txt
+	install -d $(LUA_HTTP_BUILD_DIR)
+	-rm -f $(LUA_HTTP_DIR)/../lua-Spore-stamp/lua-Spore-build
+	-rm -f $(LUA_HTTP_ROCK)
+	cd $(LUA_HTTP_BUILD_DIR) && \
+		$(CMAKE) -DOUTPUT_DIR="$(CURDIR)/$(OUTPUT_DIR)" \
+		-DLUA_SPORE_VER=$(LUA_HTTP_VER) -DLD="$(CC)" \
+		-DCC="$(CC)" -DCFLAGS="$(CFLAGS) -I$(LUAJIT_DIR)/src" \
+		-DLUAROCKS=$(if $(DARWINHOST),luarocks-5.1,luarocks) \
+		-DLUA_INCDIR="$(LUAJIT_DIR)/src" -DLUA_LIBDIR="$(CURDIR)/$(dir $(LUAJIT_LIB))" \
+		$(if $(ANDROID),-DLIBFLAG="$(LDFLAGS) $(CURDIR)/$(LUAJIT_LIB) -nostartfiles",) \
+		$(CURDIR)/$(THIRDPARTY_DIR)/lua-http && \
+		$(MAKE)
+
 $(LUASERIAL_LIB): $(THIRDPARTY_DIR)/lua-serialize/CMakeLists.txt
 	install -d $(LUASERIAL_BUILD_DIR)
 	-rm -f $(LUASERIAL_DIR)/../lua-serialize-stamp/lua-serialize-build
