@@ -9,21 +9,22 @@ enable_language(C)
 
 assert_var_defined(CC)
 assert_var_defined(CFLAGS)
+assert_var_defined(LDFLAGS)
 assert_var_defined(SONAME)
 assert_var_defined(OUTPUT_PATH)
 
 ep_get_source_dir(SOURCE_DIR)
 
 if (APPLE)
-    set(BUILD_CMD sh -c "${CC} -shared ${CFLAGS} lodepng.c -o ${OUTPUT_PATH}/${SONAME}")
+    set(BUILD_CMD sh -c "${CC} -shared ${CFLAGS} ${LDFLAGS} lodepng.c -o ${OUTPUT_PATH}/${SONAME}")
 else()
-    set(BUILD_CMD sh -c "${CC} -shared ${CFLAGS} -Wl,-E -Wl,-soname=${SONAME} lodepng.c -o ${OUTPUT_PATH}/${SONAME}")
+    set(BUILD_CMD sh -c "${CC} -shared ${CFLAGS} ${LDFLAGS} -Wl,-E -Wl,-soname=${SONAME} lodepng.c -o ${OUTPUT_PATH}/${SONAME}")
 endif()
 
 ko_write_gitclone_script(
     GIT_CLONE_SCRIPT_FILENAME
     https://github.com/lvandeve/lodepng.git
-    d03d7df9888aafb9c7f615895c34b05acf033908
+    bd8f274fb51ef18b6d26b5f106ae4bef2150622e
     ${SOURCE_DIR}
 )
 

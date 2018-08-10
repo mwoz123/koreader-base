@@ -66,12 +66,12 @@ if(${XCOMPILE})
     set(BUILD_CMD_STR "${BUILD_CMD_STR} TARGET_SONAME=\"${TARGET_SONAME}\" TARGET_CFLAGS=\"${TARGET_CFLAGS}\" TARGET_FLAGS=\"-DLUAJIT_NO_LOG2 -DLUAJIT_NO_EXP2\" CROSS=\"${CROSS}\" amalg")
 endif()
 
-set(BUILD_CMD sh -c ${BUILD_CMD_STR})
+set(BUILD_CMD sh -c "${BUILD_CMD_STR}")
 
 ko_write_gitclone_script(
     GIT_CLONE_SCRIPT_FILENAME
     https://github.com/LuaJIT/LuaJIT
-    v2.1.0-beta3
+    9b41062156779160b88fe5e1eb1ece1ee1fe6a74
     ${SOURCE_DIR}
 )
 

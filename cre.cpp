@@ -351,7 +351,7 @@ static int newDocView(lua_State *L) {
 	} else {
 		// Tweak the default settings to be slightly less random
 		props->setString(PROP_FALLBACK_FONT_FACE, "Noto Sans CJK SC");
-		props->setString(PROP_HYPHENATION_DICT, "English_US_hyphen_(Alan).pdb");
+		props->setString(PROP_HYPHENATION_DICT, "English_US.pattern");
 		props->setString(PROP_STATUS_FONT_FACE, "Noto Sans");
 		props->setString(PROP_FONT_FACE, "Noto Serif");
 		props->setInt(PROP_FONT_HINTING, 2);	// autohint, to be conservative (some ttf fonts' bytecode is truly crappy)
@@ -734,6 +734,22 @@ static int getTableOfContent(lua_State *L) {
 	walkTableOfContent(L, toc, &count);
 
 	return 1;
+}
+
+static int isTocAlternativeToc(lua_State *L) {
+	CreDocument *doc = (CreDocument*) luaL_checkudata(L, 1, "credocument");
+	if (doc->dom_doc) {
+            lua_pushboolean(L, doc->dom_doc->isTocAlternativeToc());
+            return 1;
+        }
+	return 0;
+}
+static int buildAlternativeToc(lua_State *L) {
+	CreDocument *doc = (CreDocument*) luaL_checkudata(L, 1, "credocument");
+	if (doc->dom_doc) {
+            doc->dom_doc->buildAlternativeToc();
+        }
+	return 0;
 }
 
 /*
@@ -1182,15 +1198,15 @@ bool docToWindowRect(LVDocView *tv, lvRect &rc) {
     lvPoint bottomRight = rc.bottomRight();
     if (tv->docToWindowPoint(topLeft)) {
         rc.setTopLeft(topLeft);
-    }else return false;
+    }
+    else {
+        return false;
+    }
     if (tv->docToWindowPoint(bottomRight)) {
         rc.setBottomRight(bottomRight);
-    } else {
-        // workaround to a bug in docToWindowPoint that has one pixel overflow
-        bottomRight.x -= 2;
-        if (tv->docToWindowPoint(bottomRight)) {
-            rc.setBottomRight(bottomRight);
-        }else return false;
+    }
+    else {
+        return false;
     }
     return true;
 }
@@ -1262,7 +1278,19 @@ static int getWordBoxesFromPositions(lua_State *L) {
 					if (ldomXPointer(word.getNode(), j).getRectEx(charRect)) {
 						if (!docToWindowRect(tv, charRect)) continue;
 						if (y == -1) y = charRect.top;
-						if (j != word.getStart() && y == charRect.top) continue;
+						// charRect is now the width of each individual char.
+						// Previously, ldomXPointer::getRectEx() was returning its
+						// own word->width, so getting it only from the first call
+						// looked like it was fine. But our "word"s come from
+						// lStr_findWordBounds(), unlike the ones ldomXPointer::getRectEx()
+						// uses that come from lvtextfm.cpp which splits on spaces only.
+						// We would then get shifted highlights with some texts
+						// (e.g. with french text "l'empereur" word->t.start starts
+						// at 'l' while here our word may start at 'e'mpereur)
+						// was: if (j != word.getStart() && y == charRect.top) continue;
+						// Keep extending lineRect with each individual charRect we met.
+						// When charRect.left < lastx, we are on next line and lineRect
+						// is ready to be pushed.
 						y = charRect.top;
 						if (charRect.left < lastx) {
 							lua_pushLineRect(L, lineRect.left, lineRect.top,
@@ -1714,6 +1742,8 @@ static const struct luaL_Reg credocument_meth[] = {
 	{"hasCacheFile", hasCacheFile},
 	{"invalidateCacheFile", invalidateCacheFile},
 	{"getCacheFilePath", getCacheFilePath},
+	{"buildAlternativeToc", buildAlternativeToc},
+	{"isTocAlternativeToc", isTocAlternativeToc},
 	{"gotoPage", gotoPage},
 	{"gotoPercent", gotoPercent},
 	{"gotoPos", gotoPos},

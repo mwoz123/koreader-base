@@ -155,6 +155,7 @@ LD:=$(CHOST)-ld
 RC:=$(CHOST)-windres
 RANLIB:=$(CHOST)-ranlib
 
+HOSTSTRIP:=strip
 HOSTAR:=ar
 HOSTLD:=ld
 HOSTRANLIB:=ranlib
@@ -289,7 +290,21 @@ endif
 
 # Clang 3.4 on Travis however doesn't define macro '__extern_always_inline'
 ifdef CLANG
-    BASE_CFLAGS+= -D__extern_always_inline=inline
+    BASE_CFLAGS+=-D__extern_always_inline=inline
+    # Tone down some very verbose Clang 5 warnings, too.
+    # This one can be *extremely* verbose
+    BASE_CFLAGS+=-Wno-array-bounds
+    # This one checks if -I flags are actually used, even at steps where it makes little sense.
+    # Since we massively pass -I/-L flags ourselves, this becomes insane really quick.
+    # QFLAGS should have been taking care of this already, but it looks like it doesn't take in every case...
+    BASE_CFLAGS+=-Wno-unused-command-line-argument
+    # Let FreeType do its thing...
+    BASE_CFLAGS+=-Wno-self-assign
+    # Also extremely verbose...
+    BASE_CFLAGS+=-Wno-parentheses-equality
+    # For dropbear's libtom...
+    BASE_CFLAGS+=-Wno-macro-redefined
+    # Note that things appear to be better with Clang >= 6 ;).
 endif
 
 HOST_ARCH:=-march=native
@@ -342,16 +357,18 @@ ifdef EMULATE_READER
 		CMAKE_CXX_COMPILER_LAUNCHER:=$(CCACHE)
 	endif
 	# Regular
+	REALCC:=$(HOSTCC)
+	REALCXX:=$(HOSTCXX)
 	HOSTCC:=$(strip $(CCACHE) $(HOSTCC))
 	HOSTCXX:=$(strip $(CCACHE) $(HOSTCXX))
-	HOSTAR:=$(strip $(CCACHE) $(HOSTAR))
 	CC:=$(HOSTCC)
 	CXX:=$(HOSTCXX)
+	STRIP:=$(HOSTSTRIP)
 	AR:=$(HOSTAR)
 	LD:=$(HOSTLD)
 	RANLIB:=$(HOSTRANLIB)
-	CFLAGS+= $(HOST_ARCH)
-	CXXFLAGS+= $(HOST_ARCH)
+	CFLAGS+=$(HOST_ARCH)
+	CXXFLAGS+=$(HOST_ARCH)
 else
 	# CMake is difficult about CC and CXX, especially when it's not just a full path
 	CMAKE_C_COMPILER:=$(CC)
@@ -362,14 +379,15 @@ else
 		CMAKE_C_COMPILER_LAUNCHER:=$(CCACHE)
 		CMAKE_CXX_COMPILER_LAUNCHER:=$(CCACHE)
 	endif
+	REALCC:=$(CC)
+	REALCXX:=$(CXX)
 	# Don't let libtool piss on our parade...
 	# See what was mentioned around STATIC_LIBSTDCPP on ~L#93 for more details
 	# (cf. https://www.gnu.org/software/libtool/manual/html_node/Stripped-link-flags.html#Stripped-link-flags)
 	CC:=$(strip $(CCACHE) $(CC)) -static-libstdc++
 	CXX:=$(strip $(CCACHE) $(CXX)) -static-libstdc++
-	AR:=$(strip $(CCACHE) $(AR))
-	CFLAGS+= $(ARM_ARCH) $(COMPAT_CFLAGS)
-	CXXFLAGS+= $(ARM_ARCH) $(COMPAT_CXXFLAGS)
+	CFLAGS+=$(ARM_ARCH) $(COMPAT_CFLAGS)
+	CXXFLAGS+=$(ARM_ARCH) $(COMPAT_CXXFLAGS)
 	# Make sure we always have mmap() support.
 	# This is critical for FreeType, since the usage of platform-specific code depends on this,
 	# and without it, we don't get CLOEXEC handling, which is problematic on Kobos, where we spawn stuff that might
@@ -380,14 +398,14 @@ endif
 
 # not necessary to use PIC flag for win32 which has relocation table in dll
 ifneq ($(TARGET), win32)
-    CFLAGS+= -fPIC
-    CXXFLAGS+= -fPIC
+    CFLAGS+=-fPIC
+    CXXFLAGS+=-fPIC
 endif
 
 # set a flag that C code can differenciate on for Kobo code
 # currently used for framebuffer related code in einkfb.c
 ifeq ($(TARGET), kobo)
-	CFLAGS+= -DKOBO_PLATFORM
+	CFLAGS+=-DKOBO_PLATFORM
 endif
 
 # FIXME: If we cared, we'd probably need to do something to convince libzmq not
@@ -496,7 +514,7 @@ FREETYPE_LIB=$(OUTPUT_DIR)/libs/libfreetype$(FREETYPE_LIB_EXT)
 FREETYPE_BUILD_DIR=$(THIRDPARTY_DIR)/freetype2/build/$(MACHINE)
 FREETYPE_DIR=$(CURDIR)/$(FREETYPE_BUILD_DIR)/freetype2-prefix/src/freetype2-build
 
-JPEG_LIB_EXT=$(if $(WIN32),-8.dll,$(if $(DARWIN),.8.dylib,.so.8))
+JPEG_LIB_EXT=$(if $(WIN32),-8.dll,$(if $(DARWIN),.8.dylib,.so$(if $(ANDROID),,.8)))
 JPEG_LIB=$(OUTPUT_DIR)/libs/libjpeg$(JPEG_LIB_EXT)
 TURBOJPEG_LIB=$(OUTPUT_DIR)/libs/libturbojpeg$(if $(WIN32),.dll,$(if $(DARWIN),.dylib,.so))
 JPEG_BUILD_DIR=$(THIRDPARTY_DIR)/libjpeg-turbo/build/$(MACHINE)
@@ -585,6 +603,10 @@ TAR_BUILD_DIR=$(THIRDPARTY_DIR)/tar/build/$(MACHINE)
 TAR_DIR=$(CURDIR)/$(TAR_BUILD_DIR)/tar-prefix/src/tar-build
 DROPBEAR_BUILD_DIR=$(THIRDPARTY_DIR)/dropbear/build/$(MACHINE)
 DROPBEAR_DIR=$(CURDIR)/$(DROPBEAR_BUILD_DIR)/dropbear-prefix/src/dropbear-build
+OPENSSH_BUILD_DIR=$(THIRDPARTY_DIR)/openssh/build/$(MACHINE)
+OPENSSH_DIR=$(CURDIR)/$(OPENSSH_BUILD_DIR)/openssh-prefix/src/openssh-build
+FBINK_BUILD_DIR=$(THIRDPARTY_DIR)/fbink/build/$(MACHINE)
+FBINK_DIR=$(CURDIR)/$(FBINK_BUILD_DIR)/fbink-prefix/src/fbink-build
 
 TURBO_BUILD_DIR=$(THIRDPARTY_DIR)/turbo/build/$(MACHINE)
 TURBO_DIR=$(CURDIR)/$(TURBO_BUILD_DIR)/turbo-prefix/src/turbo
@@ -629,10 +651,11 @@ NANOSVG_HEADERS=$(addprefix $(NANOSVG_INCLUDE_DIR)/, $(NANOSVG_HEADER_FILES))
 # also, dynamic libraries must be compiled with "-shared" and "-fPIC".
 # having all symbols included (-E) won't hurt, too.
 DYNLIB_CFLAGS=-L$(CURDIR)/$(OUTPUT_DIR)/libs $(CFLAGS) -I$(LUAJIT_DIR)/src -shared
+DYNLIB_CMAKE_CFLAGS=-L$(CURDIR)/$(OUTPUT_DIR)/libs $(CFLAGS) -I$(LUAJIT_DIR)/src -shared
 ifdef DARWIN
-	DYNLIB_CFLAGS+= -dynamiclib -undefined dynamic_lookup
+	DYNLIB_CFLAGS+=-dynamiclib -undefined dynamic_lookup
 else
-	DYNLIB_CFLAGS+= -Wl,-E -Wl,-rpath,'$$ORIGIN'
+	DYNLIB_CFLAGS+=-Wl,-E -Wl,-rpath,'$$ORIGIN'
 endif
 
 # RPATH for all libraries in koreader/libs. The expand path looks like below:
@@ -640,6 +663,11 @@ endif
 # \\\$$\\\$$ORIGIN   \\\$\\\$ORIGIN   \$\$ORIGIN   $$ORIGIN     $$ORIGIN   $ORIGIN
 ORIGIN_CMAKE_TO_AUTOCFG=\\\$$\\\$$ORIGIN
 
+ifdef DARWIN
+	DYNLIB_CMAKE_CFLAGS+=-dynamiclib -undefined dynamic_lookup
+else
+	DYNLIB_CMAKE_CFLAGS+=-Wl,-E -Wl,-rpath,'$(ORIGIN_CMAKE_TO_AUTOCFG)'
+endif
 
 LPEG_BUILD_DIR=$(THIRDPARTY_DIR)/lpeg/build/$(MACHINE)
 LPEG_DIR=$(CURDIR)/$(LPEG_BUILD_DIR)/lpeg-prefix/src/lpeg
@@ -647,4 +675,4 @@ LPEG_RE=$(OUTPUT_DIR)/rocks/share/lua/5.1/re.lua
 LPEG_DYNLIB=$(OUTPUT_DIR)/rocks/lib/lua/5.1/lpeg.so
 
 
-CMAKE_THIRDPARTY_LIBS=kpvcrlib,evernote-sdk-lua,luajit,lpeg,turbo,zsync,zyre,czmq,filemq,libk2pdfopt,tesseract,leptonica,lua-Spore,sdcv,luasec,luasocket,libffi,lua-serialize,glib,lodepng,minizip,djvulibre,openssl,mupdf,libzmq,freetype2,giflib,libpng,zlib,tar,libiconv,gettext,libjpeg-turbo,popen-noshell,nanosvg,dropbearmulti
+CMAKE_THIRDPARTY_LIBS=kpvcrlib,evernote-sdk-lua,luajit,lpeg,turbo,zsync,zyre,czmq,filemq,libk2pdfopt,tesseract,leptonica,lua-Spore,sdcv,luasec,luasocket,libffi,lua-serialize,glib,lodepng,minizip,djvulibre,openssl,mupdf,libzmq,freetype2,giflib,libpng,zlib,tar,libiconv,gettext,libjpeg-turbo,popen-noshell,nanosvg,dropbear,openssh,fbink
